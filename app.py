@@ -1,10 +1,10 @@
 from flask import Flask, request
 import json
-from pybit import HTTP
+from pybit import usdt_perpetual
 
 # Загрузка конфига
 cfg = json.load(open('config.json'))
-client = HTTP('https://api.bybit.com', api_key=cfg['api_key'], api_secret=cfg['api_secret'])
+client = usdt_perpetual.HTTP('https://api.bybit.com', api_key=api_key, api_secret=api_secret)
 
 app = Flask(__name__)
 
