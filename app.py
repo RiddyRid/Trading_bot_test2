@@ -2,53 +2,55 @@ import os, json
 from flask import Flask, request, jsonify
 from pybit.unified_trading import HTTP
 
-# Загрузка настроек TP/SL
+# 1) Загружаем TP/SL из config.json
 cfg = json.load(open('config.json'))
 
-# Переменные окружения
+# 2) Читаем ключи и флаг демо из окружения
 API_KEY    = os.getenv('API_KEY')
 API_SECRET = os.getenv('API_SECRET')
 USE_DEMO   = os.getenv('USE_DEMO', 'false').lower() == 'true'
 if not API_KEY or not API_SECRET:
-    raise RuntimeError("API_KEY и API_SECRET должны быть заданы")
+    raise RuntimeError("Нужно задать API_KEY и API_SECRET в Environment")
 
-# Клиент ByBit (demo → тестнет, иначе mainnet)
+# 3) Создаём ByBit клиента (testnet=demo/mainnet)
 client = HTTP(testnet=USE_DEMO, api_key=API_KEY, api_secret=API_SECRET)
 
 app = Flask(__name__)
 
+# Healthcheck
 @app.route('/', methods=['GET'])
 def home():
     return jsonify(status='alive', mode=('demo' if USE_DEMO else 'main')), 200
 
+# Webhook: POST обрабатывает сигналы
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    # 1) Парсим JSON
+    # a) Парсим JSON
     try:
         data = json.loads(request.data.decode('utf-8'))
     except Exception as e:
         return jsonify(error=f'Invalid JSON: {e}'), 400
 
-    sig = data.get('signal','').lower()
+    sig    = data.get('signal','').lower()
+    ticker = data.get('ticker','')
     try:
         price = float(data.get('price', 0))
     except:
         return jsonify(error='Price is not a number'), 400
-    ticker = data.get('ticker','')
 
-    # 2) Получаем баланс из UNIFIED-кошелька
+    # b) Берём 1% от Unified-баланса (или Funding, если вы переводите туда сами)
     try:
         resp = client.get_wallet_balance(coin="USDT", accountType="UNIFIED")
-        bal  = resp["result"]["list"][0]["walletBalance"]    # <-- используем camelCase
+        bal  = resp["result"]["list"][0]["walletBalance"]
         equity = float(bal)
         qty = round((equity * 0.01) / price, 4)
     except Exception as e:
         return jsonify(error=f'Balance fetch failed: {e}'), 500
 
-    # 3) Открытие позиции
+    # c) Open или Close
     if 'open' in sig:
+        side = 'Buy' if 'long' in sig else 'Sell'
         try:
-            side = 'Buy' if 'long' in sig else 'Sell'
             client.place_active_order(
                 category="linear", symbol=ticker, side=side,
                 order_type="Market", qty=qty, time_in_force="GoodTillCancel"
@@ -63,10 +65,9 @@ def webhook():
         except Exception as e:
             return jsonify(error=f'Open order failed: {e}'), 500
 
-    # 4) Закрытие позиции
     if 'close' in sig:
+        side = 'Sell' if 'long' in sig else 'Buy'
         try:
-            side = 'Sell' if 'long' in sig else 'Buy'
             client.place_active_order(
                 category="linear", symbol=ticker, side=side,
                 order_type="Market", qty=qty, time_in_force="GoodTillCancel"
@@ -79,4 +80,3 @@ def webhook():
 
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=5000)
-
