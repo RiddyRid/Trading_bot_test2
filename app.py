@@ -17,12 +17,10 @@ client = HTTP(testnet=USE_DEMO, api_key=API_KEY, api_secret=API_SECRET)
 
 app = Flask(__name__)
 
-# Healthcheck
 @app.route('/', methods=['GET'])
 def home():
     return jsonify(status='alive', mode=('demo' if USE_DEMO else 'main')), 200
 
-# Webhook: POST обрабатывает сигналы
 @app.route('/webhook', methods=['POST'])
 def webhook():
     # a) Парсим JSON
@@ -38,16 +36,16 @@ def webhook():
     except:
         return jsonify(error='Price is not a number'), 400
 
-    # b) Берём 1% от Unified-баланса (или Funding, если вы переводите туда сами)
+    # b) Берём 1% от баланса UNIFIED-кошелька
     try:
         resp = client.get_wallet_balance(coin="USDT", accountType="UNIFIED")
-        bal  = resp["result"]["list"][0]["walletBalance"]
+        bal  = resp["result"]["list"][0]["wallet_balance"]    # <— используем snake_case
         equity = float(bal)
         qty = round((equity * 0.01) / price, 4)
     except Exception as e:
         return jsonify(error=f'Balance fetch failed: {e}'), 500
 
-    # c) Open или Close
+    # c) Открытие
     if 'open' in sig:
         side = 'Buy' if 'long' in sig else 'Sell'
         try:
@@ -65,6 +63,7 @@ def webhook():
         except Exception as e:
             return jsonify(error=f'Open order failed: {e}'), 500
 
+    # d) Закрытие
     if 'close' in sig:
         side = 'Sell' if 'long' in sig else 'Buy'
         try:
